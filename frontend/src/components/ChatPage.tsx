@@ -198,40 +198,15 @@ const ChatPage = ({ onNewChat }: ChatPageProps) => {
         botContent += `\n\n💡 *${data.note}*`;
       }
 
-      // Add sources if available
-      if (data.sources && data.sources.length > 0) {
-        botContent += "\n\n**Sources:**\n";
-        data.sources.forEach(
-          (
-            source: {
-              title: string;
-              snippet: string;
-              confidence: string;
-              source: string;
-              section: string;
-              chunkIndex: number;
-            },
-            index: number
-          ) => {
-            // Use title if available, fallback to section name
-            const displayTitle =
-              source.title !== `Section ${source.chunkIndex}`
-                ? source.title
-                : source.section;
-
-            botContent += `${index + 1}. **${displayTitle}** (${
-              source.confidence
-            } relevance)\n`;
-            botContent += `   *"${source.snippet}"*\n\n`;
-          }
-        );
-      }
-
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         content: botContent,
         role: "assistant",
         timestamp: new Date(),
+        sources: data.sources || [],
+        webSearchUsed: data.webSearchUsed || false,
+        browsingTriggered: data.browsingTriggered || false,
+        bestSimilarity: data.bestSimilarity,
       };
 
       // Remove typing indicator and add actual response

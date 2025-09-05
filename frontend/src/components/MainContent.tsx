@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Send } from "lucide-react";
-import { Chat } from "@/types/chat";
+import { Plus, Send, ExternalLink, FileText, Globe } from "lucide-react";
+import { Chat, Source } from "@/types/chat";
 import { useState, useEffect, useRef } from "react";
 
 interface MainContentProps {
@@ -19,10 +19,19 @@ const MainContent = ({
 }: MainContentProps) => {
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom when new messages are added
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Auto-resize textarea function
+  const autoResizeTextarea = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
   };
 
   // Scroll to bottom when messages change
@@ -30,11 +39,31 @@ const MainContent = ({
     scrollToBottom();
   }, [currentChat?.messages]);
 
+  // Auto-resize textarea when message changes
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [message]);
+
+  // Initialize textarea height on mount
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "52px"; // Set initial height
+    }
+  }, []);
+
   const handleSend = () => {
     if (message.trim() && onSendMessage) {
       onSendMessage(message.trim());
       setMessage("");
+      // Reset textarea height after sending
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
     }
+  };
+
+  const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setMessage(e.target.value);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -42,6 +71,83 @@ const MainContent = ({
       e.preventDefault();
       handleSend();
     }
+  };
+
+  // Component to display sources
+  const SourcesDisplay = ({
+    sources,
+    browsingTriggered,
+  }: {
+    sources?: Source[];
+    browsingTriggered?: boolean;
+  }) => {
+    if (!sources || sources.length === 0) return null;
+
+    const documentSources = sources.filter((s) => s.type === "document");
+    const webSources = sources.filter((s) => s.type === "web");
+
+    return (
+      <div className="mt-3 space-y-2">
+        {browsingTriggered && (
+          <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+            <Globe className="inline w-3 h-3 mr-1" />
+            Web search was used to enhance the response
+          </div>
+        )}
+
+        {documentSources.length > 0 && (
+          <div className="border rounded-lg p-3 bg-gray-50">
+            <div className="flex items-center text-xs font-medium text-gray-700 mb-2">
+              <FileText className="w-3 h-3 mr-1" />
+              Document Sources ({documentSources.length})
+            </div>
+            <div className="space-y-2">
+              {documentSources.map((source, idx) => (
+                <div key={idx} className="text-xs bg-white p-2 rounded border">
+                  <div className="font-medium text-gray-800">
+                    {source.title}
+                  </div>
+                  <div className="text-gray-600 mt-1">{source.snippet}</div>
+                  <div className="text-gray-500 mt-1">
+                    Confidence: {source.confidence}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {webSources.length > 0 && (
+          <div className="border rounded-lg p-3 bg-blue-50">
+            <div className="flex items-center text-xs font-medium text-blue-700 mb-2">
+              <Globe className="w-3 h-3 mr-1" />
+              Web Sources ({webSources.length})
+            </div>
+            <div className="space-y-2">
+              {webSources.map((source, idx) => (
+                <div key={idx} className="text-xs bg-white p-2 rounded border">
+                  <div className="font-medium text-gray-800">
+                    {source.title}
+                  </div>
+                  <div className="text-gray-600 mt-1">{source.snippet}</div>
+                  {source.link && (
+                    <a
+                      href={source.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 flex items-center mt-1"
+                    >
+                      <ExternalLink className="w-3 h-3 mr-1" />
+                      {source.source}
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
   if (!currentChat) {
     return (
@@ -120,9 +226,17 @@ const MainContent = ({
                       <span className="text-sm ml-2">Thinking...</span>
                     </div>
                   ) : (
-                    <p className="text-sm whitespace-pre-wrap">
-                      {message.content}
-                    </p>
+                    <div>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {message.content}
+                      </p>
+                      {message.role === "assistant" && (
+                        <SourcesDisplay
+                          sources={message.sources}
+                          browsingTriggered={message.browsingTriggered}
+                        />
+                      )}
+                    </div>
                   )}
                   <p className="text-xs opacity-70 mt-1">
                     {message.timestamp.toLocaleTimeString()}
@@ -142,12 +256,14 @@ const MainContent = ({
           <div className="relative flex items-end gap-3">
             <div className="flex-1 relative">
               <Textarea
+                ref={textareaRef}
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={handleMessageChange}
                 onKeyDown={handleKeyPress}
                 placeholder="Type your message here..."
-                className="resize-none pr-12 min-h-[52px] max-h-[120px] py-3 text-sm leading-relaxed"
+                className="resize-none pr-12 min-h-[52px] max-h-[200px] py-3 text-sm leading-relaxed overflow-y-auto"
                 rows={1}
+                style={{ height: "auto" }}
               />
               <Button
                 size="sm"

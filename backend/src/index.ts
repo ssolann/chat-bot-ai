@@ -5,6 +5,7 @@ import { OllamaClient } from "./services/ollamaClient";
 import { VectorStore } from "./services/vectorStore";
 import { DocumentProcessor } from "./services/documentProcessor";
 import { StockService } from "./services/stockService";
+import { BrowsingAgent } from "./services/browsingAgent";
 
 dotenv.config();
 
@@ -20,6 +21,10 @@ const vectorStore = new VectorStore();
 const documentProcessor = new DocumentProcessor(ollamaClient);
 const stockService = new StockService(
   process.env.ALPHA_VANTAGE_API_KEY || "demo"
+);
+const browsingAgent = new BrowsingAgent(
+  process.env.SERPAPI_KEY ||
+    "9e0044929402f601dc3fefc79b06e509a8749a10c318e0b398164c6a56ae1716"
 );
 
 // Initialize with sample document
@@ -62,6 +67,7 @@ app.get("/", (req, res) => {
       stockQuote: "GET /api/stock/quote/:symbol",
       stockIntraday: "GET /api/stock/intraday/:symbol",
       stockOverview: "GET /api/stock/overview/:symbol",
+      webSearch: "POST /api/web-search",
     },
     frontend: "http://localhost:5174",
     docs: "API server - use endpoints above",
@@ -86,49 +92,107 @@ app.post("/api/chat", async (req, res) => {
     await initializeVectorStore();
 
     // Check if the message is asking for stock price information
-    const stockPriceRegex =
-      /(?:price|quote|cost|value|trading|current|stock)\s+(?:of\s+)?([A-Z]{2,5})|([A-Z]{2,5})\s+(?:price|quote|stock|shares?)/i;
-
     const messageText = message.toLowerCase();
-    const isStockQuery =
-      messageText.includes("stock price") ||
-      messageText.includes("current price") ||
+
+    // Check for explicit stock price queries
+    const hasStockKeywords =
+      messageText.includes("stock") ||
+      messageText.includes("price") ||
       messageText.includes("quote") ||
-      messageText.includes("trading at") ||
-      (messageText.includes("price") &&
-        (messageText.includes("amd") ||
-          messageText.includes("aapl") ||
-          messageText.includes("tsla") ||
-          messageText.includes("ibm") ||
-          messageText.includes("nvda") ||
-          messageText.includes("msft")));
+      messageText.includes("trading") ||
+      messageText.includes("ticker") ||
+      messageText.includes("shares");
+
+    // Check if previous conversation was about stocks (for follow-up queries)
+    const lastMessage =
+      conversationHistory.length > 0
+        ? conversationHistory[conversationHistory.length - 1]
+        : null;
+    const previousWasStock =
+      lastMessage &&
+      lastMessage.role === "assistant" &&
+      (lastMessage.content.includes("Stock Information") ||
+        lastMessage.content.includes("Alpha Vantage API"));
+
+    // Extract potential ticker symbols from the message using regex
+    // Look for 1-5 uppercase letter combinations that could be ticker symbols
+    const tickerRegex = /\b([A-Z]{1,5})\b/g;
+    const potentialTickers = [];
+    let match;
+    while ((match = tickerRegex.exec(message)) !== null) {
+      const ticker = match[1];
+      // Only include tickers that are 2-5 characters long
+      if (ticker.length >= 2 && ticker.length <= 5) {
+        potentialTickers.push(ticker);
+      }
+    }
+
+    // Determine if this is a stock query
+    const isStockQuery =
+      (hasStockKeywords && potentialTickers.length > 0) || // Explicit: "price of XYZ" where XYZ could be any ticker
+      (previousWasStock && potentialTickers.length > 0) || // Follow-up: "what about XYZ?" where previous was stock
+      (previousWasStock &&
+        (messageText.includes("what about") ||
+          messageText.includes("how about") ||
+          messageText.includes("and") ||
+          messageText.includes("what's") ||
+          messageText.includes("whats"))) || // Follow-up patterns without explicit ticker
+      potentialTickers.length > 0; // Any message with potential ticker symbols
 
     if (isStockQuery) {
       try {
         // Extract potential stock symbols from the message
-        const matches = message.match(stockPriceRegex);
         let stockSymbol = null;
 
-        if (matches) {
-          stockSymbol = matches[1] || matches[2];
-        } else {
-          // Try to find common stock symbols in the message
-          const commonStocks = [
-            "AMD",
-            "AAPL",
-            "TSLA",
-            "IBM",
-            "NVDA",
-            "MSFT",
-            "GOOGL",
-            "META",
-            "AMZN",
+        // First, try to get ticker from the potentialTickers array
+        if (potentialTickers.length > 0) {
+          // If there are multiple potential tickers, try to pick the most likely one
+          // Look for the one that appears after stock-related keywords
+          const stockKeywords = [
+            "price",
+            "quote",
+            "stock",
+            "ticker",
+            "trading",
+            "shares",
+            "cost",
+            "value",
           ];
-          const messageUpper = message.toUpperCase();
-          for (const stock of commonStocks) {
-            if (messageUpper.includes(stock)) {
-              stockSymbol = stock;
+          let bestTicker = potentialTickers[0]; // Default to first one
+
+          for (const keyword of stockKeywords) {
+            const keywordIndex = message.toLowerCase().indexOf(keyword);
+            if (keywordIndex !== -1) {
+              // Find the ticker that appears after this keyword
+              for (const ticker of potentialTickers) {
+                const tickerIndex = message.indexOf(ticker);
+                if (tickerIndex > keywordIndex) {
+                  bestTicker = ticker;
+                  break;
+                }
+              }
               break;
+            }
+          }
+
+          stockSymbol = bestTicker;
+        }
+
+        // If no ticker found from regex, try more specific patterns
+        if (!stockSymbol) {
+          // Look for patterns like "price of XYZ" or "XYZ stock"
+          const stockPriceRegex =
+            /(?:price|quote|cost|value)\s+(?:of\s+)?([A-Z]{1,5})(?:\s|$|[.,!?])/i;
+          const stockSymbolRegex =
+            /([A-Z]{1,5})\s+(?:price|quote|stock|shares?)(?:\s|$|[.,!?])/i;
+
+          let matches = message.match(stockPriceRegex);
+          if (matches) {
+            stockSymbol = matches[1].toUpperCase();
+          } else {
+            matches = message.match(stockSymbolRegex);
+            if (matches) {
+              stockSymbol = matches[1].toUpperCase();
             }
           }
         }
@@ -280,9 +344,10 @@ I can also help you with general stock market information and investment strateg
       4
     );
 
-    // Check if the best match has low similarity (threshold: 0.1)
+    // Check if the best match has low similarity (threshold: 0.5 for browsing agent)
     const bestSimilarity = relevantChunksWithScores[0]?.similarity || 0;
     const RELEVANCE_THRESHOLD = 0.1;
+    const BROWSING_THRESHOLD = 0.5; // Higher threshold for triggering web search
 
     console.log(
       `Query: "${message}" - Best similarity: ${bestSimilarity.toFixed(3)}`
@@ -298,6 +363,10 @@ I can also help you with general stock market information and investment strateg
       )
     );
 
+    let webSearchResults = null;
+    let combinedContext = "";
+    let sources = [];
+
     if (bestSimilarity < RELEVANCE_THRESHOLD) {
       // Question is likely outside document scope - provide direct response
       const outOfScopeResponse = documentProcessor.getOutOfScopeResponse();
@@ -309,13 +378,158 @@ I can also help you with general stock market information and investment strateg
         lowRelevance: true,
         bestSimilarity: bestSimilarity.toFixed(3),
       });
+    } else if (bestSimilarity < BROWSING_THRESHOLD) {
+      // Document retrieval has low confidence - supplement with web search
+      console.log(
+        `Low confidence (${bestSimilarity.toFixed(
+          3
+        )}), triggering web search...`
+      );
+
+      try {
+        webSearchResults = await browsingAgent.searchWeb(message, 3);
+
+        if (webSearchResults.success && webSearchResults.results.length > 0) {
+          // Enhance results by extracting content from top URLs
+          const enhancedResults = await browsingAgent.enhanceResults(
+            webSearchResults.results,
+            2
+          );
+
+          // Build combined context
+          const documentContext = relevantChunksWithScores
+            .map((item) => item.chunk.content)
+            .join("\n\n");
+          const webContext = browsingAgent.formatResultsForLLM(enhancedResults);
+
+          combinedContext = `DOCUMENT CONTEXT:\n${documentContext}\n\n${webContext}`;
+
+          // Combine sources from both document and web
+          sources = [
+            ...relevantChunksWithScores.map((item, index) => {
+              const chunk = item.chunk;
+              const similarity = item.similarity;
+              return {
+                id: chunk.id,
+                title:
+                  chunk.metadata.section ||
+                  `Document Section ${chunk.metadata.chunkIndex || index + 1}`,
+                snippet:
+                  chunk.content.substring(0, 200) +
+                  (chunk.content.length > 200 ? "..." : ""),
+                content:
+                  chunk.content.substring(0, 300) +
+                  (chunk.content.length > 300 ? "..." : ""),
+                source: chunk.metadata.source,
+                section: chunk.metadata.section,
+                confidence: (similarity * 100).toFixed(1) + "%",
+                chunkIndex: chunk.metadata.chunkIndex || index + 1,
+                type: "document",
+              };
+            }),
+            ...enhancedResults.map((result, index) => ({
+              id: `web_${index}`,
+              title: result.title,
+              snippet: result.snippet,
+              content: result.snippet,
+              source: result.source,
+              confidence: "Web Result",
+              link: result.link,
+              type: "web",
+            })),
+          ];
+
+          console.log(
+            `Combined ${relevantChunksWithScores.length} document chunks with ${enhancedResults.length} web results`
+          );
+        } else {
+          // Web search failed, fall back to document only
+          console.log("Web search failed, using document context only");
+          combinedContext = relevantChunksWithScores
+            .map((item) => item.chunk.content)
+            .join("\n\n");
+          sources = relevantChunksWithScores.map((item, index) => {
+            const chunk = item.chunk;
+            const similarity = item.similarity;
+            return {
+              id: chunk.id,
+              title:
+                chunk.metadata.section ||
+                `Document Section ${chunk.metadata.chunkIndex || index + 1}`,
+              snippet:
+                chunk.content.substring(0, 200) +
+                (chunk.content.length > 200 ? "..." : ""),
+              content:
+                chunk.content.substring(0, 300) +
+                (chunk.content.length > 300 ? "..." : ""),
+              source: chunk.metadata.source,
+              section: chunk.metadata.section,
+              confidence: (similarity * 100).toFixed(1) + "%",
+              chunkIndex: chunk.metadata.chunkIndex || index + 1,
+              type: "document",
+            };
+          });
+        }
+      } catch (error) {
+        console.error("Error during web search:", error);
+        // Fall back to document context only
+        combinedContext = relevantChunksWithScores
+          .map((item) => item.chunk.content)
+          .join("\n\n");
+        sources = relevantChunksWithScores.map((item, index) => {
+          const chunk = item.chunk;
+          const similarity = item.similarity;
+          return {
+            id: chunk.id,
+            title:
+              chunk.metadata.section ||
+              `Document Section ${chunk.metadata.chunkIndex || index + 1}`,
+            snippet:
+              chunk.content.substring(0, 200) +
+              (chunk.content.length > 200 ? "..." : ""),
+            content:
+              chunk.content.substring(0, 300) +
+              (chunk.content.length > 300 ? "..." : ""),
+            source: chunk.metadata.source,
+            section: chunk.metadata.section,
+            confidence: (similarity * 100).toFixed(1) + "%",
+            chunkIndex: chunk.metadata.chunkIndex || index + 1,
+            type: "document",
+          };
+        });
+      }
+    } else {
+      // High confidence document match - use document context only
+      console.log(
+        `High confidence (${bestSimilarity.toFixed(
+          3
+        )}), using document context only`
+      );
+      combinedContext = relevantChunksWithScores
+        .map((item) => item.chunk.content)
+        .join("\n\n");
+      sources = relevantChunksWithScores.map((item, index) => {
+        const chunk = item.chunk;
+        const similarity = item.similarity;
+        return {
+          id: chunk.id,
+          title:
+            chunk.metadata.section ||
+            `Document Section ${chunk.metadata.chunkIndex || index + 1}`,
+          snippet:
+            chunk.content.substring(0, 200) +
+            (chunk.content.length > 200 ? "..." : ""),
+          content:
+            chunk.content.substring(0, 300) +
+            (chunk.content.length > 300 ? "..." : ""),
+          source: chunk.metadata.source,
+          section: chunk.metadata.section,
+          confidence: (similarity * 100).toFixed(1) + "%",
+          chunkIndex: chunk.metadata.chunkIndex || index + 1,
+          type: "document",
+        };
+      });
     }
-
-    // Extract chunks from results
-    const relevantChunks = relevantChunksWithScores.map((item) => item.chunk);
-
-    // Build context from relevant chunks
-    const context = relevantChunks.map((chunk) => chunk.content).join("\n\n");
 
     // Generate response using Ollama with context and conversation history
     const outOfScopeMessage = documentProcessor.getOutOfScopeResponse();
@@ -328,7 +542,7 @@ I can also help you with general stock market information and investment strateg
 
     const response = await ollamaClient.generateConversationResponse(
       message,
-      context,
+      combinedContext,
       formattedHistory,
       outOfScopeMessage
     );
@@ -336,83 +550,14 @@ I can also help you with general stock market information and investment strateg
     res.json({
       response,
       conversationContext: conversationHistory.length > 0,
-      sources: relevantChunksWithScores.map((item, index) => {
-        const chunk = item.chunk;
-        const similarity = item.similarity;
-
-        // Extract a more meaningful snippet
-        let snippet = chunk.content;
-
-        // Try to find the most relevant sentence that contains key terms from the query
-        const queryWords = message
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((word: string) => word.length > 3);
-        const sentences = chunk.content
-          .split(/[.!?]+/)
-          .filter((s) => s.trim().length > 10);
-
-        // Find sentence with most query word matches
-        let bestSentence = sentences[0] || chunk.content.substring(0, 150);
-        let maxMatches = 0;
-
-        for (const sentence of sentences) {
-          const sentenceLower = sentence.toLowerCase();
-          const matches = queryWords.filter((word: string) =>
-            sentenceLower.includes(word)
-          ).length;
-          if (matches > maxMatches) {
-            maxMatches = matches;
-            bestSentence = sentence;
-          }
-        }
-
-        // If no good sentence match, try to find a meaningful excerpt
-        if (maxMatches === 0) {
-          // Look for lines with important information (bullets, dashes, etc.)
-          const lines = chunk.content
-            .split("\n")
-            .filter((line) => line.trim().length > 10);
-          const meaningfulLine = lines.find(
-            (line) =>
-              line.includes("-") ||
-              line.includes("•") ||
-              line.includes(":") ||
-              /\d+/.test(line) ||
-              line.toLowerCase().includes("employee")
-          );
-
-          if (meaningfulLine) {
-            snippet = meaningfulLine.trim();
-          } else {
-            snippet = bestSentence.trim();
-          }
-        } else {
-          snippet = bestSentence.trim();
-        }
-
-        // Ensure snippet isn't too long
-        if (snippet.length > 200) {
-          snippet = snippet.substring(0, 200) + "...";
-        }
-
-        return {
-          id: chunk.id,
-          title:
-            chunk.metadata.section ||
-            `Section ${chunk.metadata.chunkIndex || index + 1}`,
-          snippet: snippet,
-          content:
-            chunk.content.substring(0, 300) +
-            (chunk.content.length > 300 ? "..." : ""),
-          source: chunk.metadata.source,
-          section: chunk.metadata.section,
-          confidence: (similarity * 100).toFixed(1) + "%",
-          chunkIndex: chunk.metadata.chunkIndex || index + 1,
-        };
-      }),
+      sources: sources,
       timestamp: new Date().toISOString(),
-      chunksFound: relevantChunks.length,
+      chunksFound: relevantChunksWithScores.length,
+      webSearchUsed: webSearchResults !== null,
+      bestSimilarity: bestSimilarity.toFixed(3),
+      browsingTriggered:
+        bestSimilarity < BROWSING_THRESHOLD &&
+        bestSimilarity >= RELEVANCE_THRESHOLD,
     });
   } catch (error) {
     console.error("Chat endpoint error:", error);
@@ -571,6 +716,48 @@ app.get("/api/stock/overview/:symbol", async (req, res) => {
     res.status(500).json({
       error: "Failed to fetch company overview",
       message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// Web search endpoint
+app.post("/api/web-search", async (req, res) => {
+  try {
+    const { query, maxResults = 5 } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: "Query is required" });
+    }
+
+    console.log(`Manual web search requested for: ${query}`);
+
+    const searchResults = await browsingAgent.searchWeb(query, maxResults);
+
+    if (!searchResults.success) {
+      return res.status(500).json({
+        error: "Web search failed",
+        details: searchResults.error,
+      });
+    }
+
+    // Enhance results by extracting content from top URLs
+    const enhancedResults = await browsingAgent.enhanceResults(
+      searchResults.results,
+      2
+    );
+
+    res.json({
+      success: true,
+      query: searchResults.query,
+      results: enhancedResults,
+      timestamp: searchResults.timestamp,
+      resultsCount: enhancedResults.length,
+    });
+  } catch (error) {
+    console.error("Web search endpoint error:", error);
+    res.status(500).json({
+      error: "Failed to perform web search",
+      details: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });

@@ -7,6 +7,7 @@ A sophisticated AI-powered chatbot that provides intelligent responses based on 
 **This is primarily a context-aware chatbot** that understands and responds to questions about your specific documents. The sample implementation includes a Company Policy Manual covering remote work policies, benefits packages, and performance review processes. The chatbot can answer detailed questions about any content within these documents.
 
 ### Key Capabilities:
+
 - **📄 Document-based Q&A**: Intelligent responses about your specific document content using vector similarity search
 - **🔍 Web Search Integration**: Real-time web browsing using SerpAPI for up-to-date information
 - **📊 Stock Market Data**: Live stock quotes and market data via Alpha Vantage API
@@ -78,7 +79,7 @@ VECTOR_STORE_TYPE=memory
 # Alpha Vantage API Configuration
 ALPHA_VANTAGE_API_KEY=your_api_key_here
 
-# SerpAPI Configuration  
+# SerpAPI Configuration
 SERPAPI_KEY=your_serpapi_key_here
 ```
 
@@ -274,7 +275,7 @@ chatbot/
 ## 🙏 Acknowledgments
 
 - [Ollama](https://ollama.ai/) for local LLM capabilities
-- [SerpAPI](https://serpapi.com/) for reliable web search functionality  
+- [SerpAPI](https://serpapi.com/) for reliable web search functionality
 - [Alpha Vantage](https://www.alphavantage.co/) for stock market data
 - [shadcn/ui](https://ui.shadcn.com/) for beautiful UI components
 - [Vite](https://vitejs.dev/) for fast development experience

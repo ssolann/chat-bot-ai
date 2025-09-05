@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Stock Market Chatbot Setup Script
-echo "🤖 Setting up Stock Market Chatbot..."
+# Intelligent Context Chatbot Setup Script
+echo "🤖 Setting up Intelligent Context Chatbot..."
 
 # Check if Node.js is installed
 if ! command -v node &> /dev/null; then
@@ -27,7 +27,7 @@ npm install
 # Copy environment file
 if [ ! -f .env ]; then
     cp .env.example .env
-    echo "📝 Created .env file - please add your Alpha Vantage API key"
+    echo "📝 Created .env file - please add your API keys (Alpha Vantage & SerpAPI)"
 else
     echo "⚠️  .env file already exists"
 fi
@@ -41,11 +41,16 @@ echo ""
 echo "🎉 Setup complete!"
 echo ""
 echo "Next steps:"
-echo "1. Get a free API key from: https://www.alphavantage.co/support/#api-key"
-echo "2. Add your API key to backend/.env file"
+echo "1. Get API keys:"
+echo "   • Alpha Vantage (stock data): https://www.alphavantage.co/support/#api-key"
+echo "   • SerpAPI (web search): https://serpapi.com/"
+echo "2. Add your API keys to backend/.env file"
 echo "3. Install Ollama: curl -fsSL https://ollama.ai/install.sh | sh"
 echo "4. Pull a model: ollama pull deepseek-r1:14b"
 echo "5. Start the backend: cd backend && npm run dev"
 echo "6. Start the frontend: cd frontend && npm run dev"
+echo ""
+echo "💡 This chatbot answers questions about your documents (sample: Company Policy)"
+echo "   It can also search the web and provide stock market data when needed."
 echo ""
 echo "📖 For more details, see README.md"

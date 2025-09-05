@@ -1,0 +1,41 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "nodemon src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@types/request": "^2.48.13",
+    "@types/uuid": "^10.0.0",
+    "@xenova/transformers": "^2.17.2",
+    "axios": "^1.11.0",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "langchain": "^0.3.32",
+    "mammoth": "^1.10.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "^1.1.1",
+    "request": "^2.88.2",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.3.1",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
